@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e  #abort when daisy
 
-# SIZE=standardowo stworzy na pół ramu
 RAMDISK_LOC=/tmp/ramdisk
+# commenting out SIZE will use half your RAM by default
 SIZE=1500m
 MYSQL_LOC=/var/lib/mysql
 CLEAN_NAME=`basename $0`
