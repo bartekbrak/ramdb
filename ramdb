@@ -1,0 +1,155 @@
+#!/bin/bash
+set -e  #abort when daisy
+
+# SIZE=standardowo stworzy na pół ramu
+RAMDISK_LOC=/tmp/ramdisk
+SIZE=1500m
+MYSQL_LOC=/var/lib/mysql
+CLEAN_NAME=`basename $0`
+NOW=`date +%d_%h_%H%M%S`
+r='\e[0;31m'
+R='\e[0m'
+ok()   { echo -e "[\e[0;32m ok \e[0m] $1"; }
+warn() { echo -e "[\e[0;33mwarn\e[0m] $1"; }
+fail() { echo -e "[\e[0;31mfail\e[0m] $1"; exit 2; }
+dontsudo() {
+    if [[ $UID == 0 ]]; then
+        fail "Don't run this script with sudo. I have changed this for improved security. You will be prompted for a password when it's necessary."
+    fi
+}
+
+dontsudo
+
+case $1 in
+    on)
+        if [ ! -e ${RAMDISK_LOC}_on.lock ]
+        then
+            mkdir -p ${RAMDISK_LOC}/ &&
+                ok "${RAMDISK_LOC} created." ||
+                fail "Could not create ${RAMDISK_LOC}"
+            if [ ! `mountpoint -q ${RAMDISK_LOC}` ]
+            then
+                sudo mount tmpfs -t tmpfs -o size=${SIZE}  ${RAMDISK_LOC}/
+            else
+                warn "Ramdisk already_mounted."
+            fi
+            sudo cp  -r ${MYSQL_LOC} ${MYSQL_LOC}.bak.${NOW} &&
+                ok "Backup ${MYSQL_LOC}.bak.${NOW} created." ||
+                fail "Backup could not be created. Check if ${MYSQL_LOC} exist."
+            sudo mv ${MYSQL_LOC} ${RAMDISK_LOC}/mysql &&
+                ok "Mysql dir moved to ramdisk." ||
+                fail "Backup could not be created. Check if ${MYSQL_LOC} exist."
+            sudo ln -s ${RAMDISK_LOC}/mysql ${MYSQL_LOC} &&
+                ok "Symlink created." ||
+                fail "Symlink creation failed."
+            sudo chown -R mysql:mysql ${RAMDISK_LOC}/mysql &&
+                ok "Ownership fixed to mysql:mysql." ||
+                fail "Could not change ownership"
+            sudo service mysql restart &&
+                ok "Mysql restarted" ||
+                fail "Could not restart MySQL."
+            touch ${RAMDISK_LOC}_on.lock &&
+                ok "Lock file created." ||
+                fail "Could not create the lock file"
+            echo "The mysql on ram disk is ON."
+        else
+            warn "The lock file exists, I can't proceed. Isn't the trick already on?"
+        fi
+
+        ;;
+    off)
+        if [ -e ${RAMDISK_LOC}_on.lock  ]
+        then
+            sudo rm -rf ${MYSQL_LOC} &&
+                ok "Removed symlink." ||
+                fail "Can't remove the symlink"
+            sudo mv ${RAMDISK_LOC}/mysql ${MYSQL_LOC} &&
+                ok "Mysql dir moved to it's original location" ||
+                fail "mv ${RAMDISK_LOC}/mysql ${MYSQL_LOC} failed"
+            sudo chown -R mysql:mysql ${MYSQL_LOC} &&
+                ok "Ownership fixed to mysql:mysql." ||
+                fail "COuld not fix ownership"
+            sudo rm -f ${RAMDISK_LOC}_on.lock &&
+                ok "Lockfile removed." ||
+                fail "Lockfile removal failed."
+            sudo service mysql restart
+            echo "The mysql on ram disk is OFF."
+        else
+            warn "There's no lock file present. Did you fuck up?"
+            echo "If you don't care current databases you may recover mysql by invoking:"
+            echo "sudo service mysql stop"
+            echo "sudo rm -rf /var/lib/mysql"
+            echo "sudo mysql_install_db"
+            echo "sudo service mysql start"
+        fi
+        ;;
+
+
+    status|st)
+
+        if [ -e ${RAMDISK_LOC}_on.lock  ];then
+            ok "The lock file exists."
+        else
+            warn "The lock file does not exist."
+        fi
+        if mountpoint -q ${RAMDISK_LOC};then
+            ok "${RAMDISK_LOC} mounted."
+        else
+            warn "${RAMDISK_LOC} not mounted."
+        fi
+        if [ -L ${MYSQL_LOC} ];then
+            ok "${MYSQL_LOC} is a smylink."
+        else
+            warn "${MYSQL_LOC} is not a symlink."
+        fi
+        ok "Total disk usage: `sudo du -shL /var/lib/mysql | cut -f1`"
+        ;;
+    remove_backups)
+        set -x
+        sudo rm -r ${MYSQL_LOC}.bak.*
+        ;;
+    force_backup)
+        if [ -L ${MYSQL_LOC} ]
+        then
+            sudo cp  -r ${RAMDISK_LOC}/mysql ${MYSQL_LOC}.bak.${NOW} &&
+                ok "${MYSQL_LOC}.bak.${NOW} created." ||
+                fail "sudo cp  -r ${RAMDISK_LOC}/mysql ${MYSQL_LOC}.bak.${NOW} failed."
+        else
+            sudo cp  -r ${MYSQL_LOC} ${MYSQL_LOC}.bak.${NOW} &&
+                ok "${MYSQL_LOC}.bak.${NOW} created." ||
+                fail "sudo cp  -r ${RAMDISK_LOC} ${MYSQL_LOC}.bak.${NOW} failed."
+        fi
+        ;;
+    recover)
+        if [ ! -e ${MYSQL_LOC} ] && [ ! $(mountpoint -q ${RAMDISK_LOC}) ] ; then
+            echo ${MYSQL_LOC} appears to be broken
+            echo and ${RAMDISK_LOC} is not mounted. This is a fuck up
+            newest=$(sudo find /var/lib  -type d -name mysql.* -printf "%C@ %p\n" | sort | awk '{print $2}' | tail -n 1)
+            echo Newest backup is $newest. Apply?
+            read -p "[Enter] / [Ctrl-C]";
+            sudo rm -rf ${MYSQL_LOC}
+            sudo cp -r ${newest} ${MYSQL_LOC}
+            sudo chown -R mysql:mysql ${MYSQL_LOC}
+            sudo service mysql restart
+        else
+            ok "No need to recover"
+        fi
+        ;;
+
+    *)
+        echo "mysql ramdisk switcher, bartek.rychlicki@gmail.com, version 1387128242"
+        echo
+        echo "this script has been tested but do not trust it, actual db damage "
+        echo "is likely and indeed happened to me, so be warned"
+        echo
+        echo "usage:"
+        echo "    sudo" $0 "[-q] action"
+        echo "actions:"
+        echo "    on"
+        echo "    off"
+        echo "    status|st"
+        echo "    remove_backups"
+        echo "    force_backup"
+        echo "    recover"
+        ;;
+esac
