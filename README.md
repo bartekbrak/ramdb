@@ -31,3 +31,12 @@ actions:
     force_backup
     recover
 ```
+
+# Instalation
+
+```
+wget https://raw.githubusercontent.com/bartekbrak/ramdb/master/ramdb
+chmod +x ramdb
+vim ramdb  # adjust the size, change SIZE
+# copy to wherever you have your executables, I like ~/bin
+```
