@@ -14,6 +14,7 @@ for debug and development which relies on mysql.
 
 # Usage:
 
+```
 $ ramdb -h
 mysql ramdisk switcher, bartek.rychlicki@gmail.com, version 1387128242
 
@@ -29,4 +30,4 @@ actions:
     remove_backups
     force_backup
     recover
-
+```
